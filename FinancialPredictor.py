@@ -10,12 +10,33 @@ from sklearn.model_selection import ParameterGrid
 import pywt
 
 
+def plotMaxGraph(f_train_preparation,feature_size,accumulatore,dollars,best_pred,l_train_preparation, best_mean, best_out_params):
+    train_size = best_out_params['train_size']
+    test_size = best_out_params['test_size']
+    total_length = best_out_params['total_length']
+    print('train',len(l_train_preparation[train_size+feature_size:]))
+    print('pred',len(best_pred))
+    acc = accumulator(f_train_preparation[train_size + feature_size:],accumulatore,dollars,
+                      best_pred,l_train_preparation[train_size+feature_size:])
+    mdd = maxDrawdown(acc)
+    end = acc[(len(acc) - 1)] - accumulatore
+    boh = dict(Acc=best_mean, mdd=mdd, end=end, end_d_mdd=(end / mdd))
+    sup = dict(Market = 'SP500', Train =train_size, Test = test_size, Total_length= total_length)
+    plt.figure()
+    plt.grid(True)
+    plt.suptitle(sup, fontsize=14, fontweight='bold')
+    plt.title(boh, fontsize=8)
+    plt.ylabel('Amount(USD)')
+    plt.xlabel('Days')
+    plt.plot(acc)
+    plt.show()
+
 # Split the dataset into 7 days of train and 1 predicted
 def preparation(f_train, l_train, step_size, feature_size, offset):
     train_list = []
     test_list = []
     #Provo a togliere - feature size
-    for i in range(offset, offset + step_size):
+    for i in range(offset, offset + step_size - feature_size):
         list = []
         list = f_train[i:i + feature_size]
         train_list.append(list)
@@ -23,6 +44,20 @@ def preparation(f_train, l_train, step_size, feature_size, offset):
 
     return train_list, test_list
 
+
+def maxDrawdown(tmp):
+    # Calculate Max Drawdown
+    maxValue = float(tmp[0])
+    drawdown = []
+
+    for i in range(0, len(tmp) - 1, 1):
+        if (float(tmp[i + 1])) > maxValue:
+            maxValue = float(tmp[i + 1])
+        else:
+            drawdown.append(abs(maxValue - tmp[i + 1]))
+
+    mdd = max(drawdown)
+    return mdd
 
 def generateRow(dataset, start, end, hour):
     subset = dataset.loc[start:end]
@@ -196,14 +231,71 @@ def accumulator (f_train_preparation,accumulator, dollars, predictions, l_train_
         acc.append(accumulator)
     return acc
 
-def plotDataEquity(f_train_preparation,accumulator, dollars, predictions):
-    # Calculate Max Drawdown
-    plt.figure()
-    acc = accumulator(f_train_preparation,accumulator,dollars,predictions)
+# Plot the graph of the signal decomposition with Wavelets
+def plot_signal_decomp(data, w, title):
+    """Decompose and plot a signal S.
+    S = An + Dn + Dn-1 + ... + D1
+    """
+    w = pywt.Wavelet(w)
+    a = data
+    ca = []
+    cd = []
+    for i in range(5):
+        (a, d) = pywt.dwt(a, w, mode)   #perform a single level transform
+        ca.append(a)        # Coefficiente d'approssimazione
+        cd.append(d)        # Coefficiente di dettaglio
 
+    caT = []
+    cdT = []
 
+    for row in ca:
+        pywt.threshold(row,2,'hard')
+        caT.append(row)
 
+    ca = caT
 
+    for row in cd:
+        pywt.threshold(row,2,'hard')
+        cdT.append(row)
+
+    cd = cdT
+
+    rec_a = []
+    rec_d = []
+
+    for i, coeff in enumerate(ca):      # Create a list of coefficients
+        coeff_list = [coeff, None] + [None] * i
+        print(coeff_list)
+        rec_a.append(pywt.waverec(coeff_list, w))      # Perform multilevel reconstruction of signal from a list of coeffs
+
+    for i, coeff in enumerate(cd):
+        coeff_list = [None, coeff] + [None] * i
+        rec_d.append(pywt.waverec(coeff_list, w))
+
+    print(rec_a)
+    #hard = pywt.threshold(rec_a, 2, 'hard')
+    print(hard)
+    #.threshold(rec_d, 1, 'soft')
+    # Plot the series
+    fig = plt.figure()
+    ax_main = fig.add_subplot(len(rec_a) + 1, 1, 1)
+    ax_main.set_title(title)
+    ax_main.plot(data)
+    ax_main.set_xlim(0, len(data) - 1)
+
+    # Plot the approximation coeffs
+    for i, y in enumerate(rec_a):
+        ax = fig.add_subplot(len(rec_a) + 1, 2, 3 + i * 2)
+        ax.plot(y, 'r')
+        ax.set_xlim(0, len(y) - 1)
+        ax.set_ylabel("A%d" % (i + 1))
+
+    #Plot the detail coeffs
+    for i, y in enumerate(rec_d):
+        ax = fig.add_subplot(len(rec_d) + 1, 2, 4 + i * 2)
+        ax.plot(y, 'g')
+        ax.set_xlim(0, len(y) - 1)
+        ax.set_ylabel("D%d" % (i + 1))
 
 
 hourly_dataset_name = 'sp.csv'
@@ -212,10 +304,14 @@ hourly_dataset_name = 'sp.csv'
 dataset_name = 'sp.csv'
 df = pd.read_csv(hourly_dataset_name)
 
+# Mode for wavelets use
+mode = pywt.Modes.smooth
+
 #print(df['Time'])
 print('start')
 #hourlyTimeSeCreate(df)
 print('ok')
+
 # If df does not hace diff and sign columns create them
 if df.columns[-1] == 'Volume':
     diff = add_diff_column(df)
@@ -231,12 +327,13 @@ else:
     sign = signGenerator(df)
 
 
+#plot_signal_decomp(diff,'sym5','DWT')
 f_train_preparation = diff # Save the diff column
 l_train_preparation = sign # Save the sign column
 print('f',f_train_preparation)
 print('l',l_train_preparation)
 # For days i have tested 7 days and 1 predicted. for minutes 170 is good or 171 a bit less
-step_size = 200
+step_size = 500
 offset = 0
 feature_size =  7 #170 per orarie #7 giornaliere #23 per orarie
 list_of_accuracies = []
@@ -287,9 +384,12 @@ for mean, stdev, param in zip(means, stds, params):
 # Tune the hype
 #test_sizes = [10,20,30,50,100,130,160,200]
 #train_sizes = [100,150,180,200,250,300,500]
-test_sizes = [140]
-train_sizes = [400]
+#test_sizes = [150,200,100,50]
+#train_sizes = [400,500,200]
 total_length = [len(diff)-1]
+train_sizes = [500]
+test_sizes = [150]
+
 parameter = dict(train_size=train_sizes, test_size = test_sizes, total_length= total_length)
 grid = ParameterGrid(parameter)
 
@@ -305,10 +405,14 @@ mean = 0
 accumulatore = 100000
 dollars = 50
 
+count = (len(test_sizes)*len(train_sizes)) -1
 for params in grid:
+    list_of_predictions=[]
+    count -=1
     print('par',params)
     test_size = params['test_size']
     offset = test_size
+    mdd = 0
     train_size = params['train_size']
     in_sample_size= params['total_length']
     print('Parameters:', params)
@@ -318,15 +422,19 @@ for params in grid:
     train_size = 400
     in_sample_size = 4000
     '''''
-    list_of_predictions = []
+
     if train_size > test_size:
         featureTr_list, labelTr_list = preparation(f_train_preparation, l_train_preparation, train_size, feature_size,
-                                                   offset)
+                                                   0)
         featureTr_list = normalize(featureTr_list)
         model.fit(featureTr_list,labelTr_list)
         featureTe_list, labelTe_list = preparation(f_train_preparation, l_train_preparation, test_size,
                                                        feature_size, train_size)  # 100 of predictions
         predictions = model.predict(featureTe_list)
+        #print('pred1',len(predictions))
+        list_of_predictions = np.hstack((list_of_predictions,predictions))
+        #print('totalpred',len(list_of_predictions))
+
         accuracy = accuracy_score(labelTe_list,predictions)
         list_of_accuracies.append(accuracy)
 
@@ -339,9 +447,10 @@ for params in grid:
         #date = pd.to_datetime(date).year
         #print('date',date)
         # From the offset to the end of the series fit on the 200th element and predict on 100th successive.
-        for i in range(offset,in_sample_size - train_size - test_size,test_size):
+        for i in range(offset-feature_size,in_sample_size - train_size - test_size,test_size-feature_size):
             # fit su 200 (90 % esempio)
             #count +=1
+            print(i)
             featureTr_list, labelTr_list = preparation(f_train_preparation, l_train_preparation, train_size, feature_size,
                                                        i)
             featureTr_list = normalize(featureTr_list)
@@ -360,41 +469,77 @@ for params in grid:
             featureTe_list = normalize(featureTe_list)
             #print(len(featureTe_list))
             predictions = model.predict(featureTe_list)  # Predict the first 100th
+            #print('2pred',len(predictions))
             #print('prediction',predictions)
             #print('labelTe_list',labelTe_list)
             accuracy = accuracy_score(labelTe_list, predictions)  # first accuracy
             list_of_accuracies.append(accuracy)
             #print(accuracy)
             list_of_predictions = np.hstack((list_of_predictions,predictions))
-
-        print(list_of_accuracies)
+            #print(list_of_predictions)
+        #print(list_of_accuracies)
+        old_best_pred = list_of_predictions
         old_mean = mean
         mean = np.mean(list_of_accuracies)
+
+        old_mdd = mdd
+        '''''''''
+        
         if mean >= old_mean:
             best_mean = mean
+            best_pred = list_of_predictions
             best_out_params = params
-        else:
-            best_mean = old_mean
+        #else:
+            #best_mean = old_mean
+        '''''
+        acc = accumulator(f_train_preparation[train_size + feature_size:], accumulatore, dollars,
+                          list_of_predictions, l_train_preparation[train_size + feature_size:])
+        mdd = maxDrawdown(acc)
+
+
+        if mdd >= old_mdd:
+            best_mdd = mdd
+            best_pred = list_of_predictions
+            best_out_params = params
+
 
         print('mean',mean)
-        print('best_mean', best_mean)
+        #print('best_mean', best_mean)
         print('best_out_param', best_out_params)
+
+        # print('train_now',train_size)
+        #print('test_now',test_size)
+        #print('length',total_length)
+        #print('pred',len(list_of_predictions))
+        #print('old',len(best_pred))
+        # For best params plot the graph
         list_of_accuracies = []
-        print(len(list_of_predictions))
-        acc = accumulator(f_train_preparation[test_size:],accumulatore,dollars,list_of_predictions,l_train_preparation[test_size:])
+        #print(len(list_of_predictions))
+        #print(len(best_pred))
+        #print('train',len(l_train_preparation[train_size+feature_size:]))
+        if count <= 0 :
+            plotMaxGraph(f_train_preparation,feature_size,accumulatore,dollars,
+                         best_pred,l_train_preparation,best_mdd,best_out_params)
+        '''''''''''
+        acc = accumulator(f_train_preparation[train_size+feature_size:],accumulatore,dollars,list_of_predictions,l_train_preparation[train_size+feature_size:])
         print(len(acc))
         print(acc)
+        mdd = maxDrawdown(acc)
+        end = acc[(len(acc)-1)] - accumulatore
+        boh = dict(Acc= best_mean,mdd=mdd,end=end, end_d_mdd=(end/mdd))
         plt.figure()
         plt.grid(True)
-        plt.title('Market:SP500 Train: 85%')
+        plt.suptitle('Market:SP500 Train: 85%',fontsize = 14, fontweight='bold')
+        plt.title(boh, fontsize=8)
         plt.ylabel('Amount(USD)')
+        plt.xlabel('Days')
         plt.plot(acc)
         plt.show()
+    '''''
 
-
-
-
-
+train_size = best_out_params['train_size']
+test_size = best_out_params['test_size']
+total_length = best_out_params['total_length']
 
 '''''''''
 count1 = range(0,count+1)
