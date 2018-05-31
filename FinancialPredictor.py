@@ -104,6 +104,16 @@ def add_diff_column(df):
 
     return diff
 
+
+# Add a diff column if that does not exist
+def add_diff_column1(df):
+    tmp = df['CLOSE'].tolist()
+    tmp2 = df['OPEN'].tolist()
+    diff = []
+    for i in range(0, len(tmp)):
+        diff.append(tmp[i] - tmp2[i])
+
+    return diff
 # If the sign column does not exists, calculate it
 def signGenerator(df):
     sign = []
@@ -301,8 +311,8 @@ def plot_signal_decomp(data, w, title):
 hourly_dataset_name = 'sp.csv'
 
 # Read the csv
-dataset_name = 'sp.csv'
-df = pd.read_csv(hourly_dataset_name)
+dataset_name = 'MINISP_FULL_NATIVE.csv'
+df = pd.read_csv(dataset_name)
 
 # Mode for wavelets use
 mode = pywt.Modes.smooth
@@ -316,15 +326,9 @@ print('ok')
 if df.columns[-1] == 'Volume':
     diff = add_diff_column(df)
     sign = signGenerator(diff)
-elif dataset_name =='sp1.csv':
-    diff = df.iloc[1000:,['diff']].tolist()
-    sign = df.iloc[1000:,['sign']].tolist()
-elif dataset_name == 'sp':
-    diff = df.iloc[:,-2]
-    sign = df.iloc[:,-1]
-else:
-    diff = df.iloc[:,-1]
-    sign = signGenerator(df)
+elif df.columns[-1] == 'CLASS':
+    diff = add_diff_column1(df)
+    sign = signGenerator(diff)
 
 
 #plot_signal_decomp(diff,'sym5','DWT')
@@ -355,6 +359,7 @@ loss = ['deviance','exponential']
 n_estimators = [1000,100,500,1500]
 max_depth = [6,3]
 min_samples_leaf = [15,10]
+feature_sizes = [7,2,4]
 param_grid = dict(loss=loss, n_estimators =n_estimators, max_depth=max_depth, min_samples_leaf=min_samples_leaf)
 grid = GridSearchCV(estimator=model, param_grid=param_grid)
 
@@ -384,13 +389,14 @@ for mean, stdev, param in zip(means, stds, params):
 # Tune the hype
 #test_sizes = [10,20,30,50,100,130,160,200]
 #train_sizes = [100,150,180,200,250,300,500]
-#test_sizes = [150,200,100,50]
-#train_sizes = [400,500,200]
+test_sizes = [150,200,100,50]
+train_sizes = [400,500,200]
 total_length = [len(diff)-1]
-train_sizes = [500]
-test_sizes = [150]
+#train_sizes = [500]
+#test_sizes = [150]
 
-parameter = dict(train_size=train_sizes, test_size = test_sizes, total_length= total_length)
+parameter = dict(train_size=train_sizes, test_size = test_sizes, total_length= total_length,
+                 feature_size = feature_sizes)
 grid = ParameterGrid(parameter)
 
 # Create new model type
@@ -404,8 +410,11 @@ model = GradientBoostingClassifier(
 mean = 0
 accumulatore = 100000
 dollars = 50
+no_name = 0
+old_no_name = 0
+count = (len(test_sizes)*len(train_sizes))
+best_no_name = 0
 
-count = (len(test_sizes)*len(train_sizes)) -1
 for params in grid:
     list_of_predictions=[]
     count -=1
@@ -413,15 +422,11 @@ for params in grid:
     test_size = params['test_size']
     offset = test_size
     mdd = 0
+
+    feature_size = params['feature_size']
     train_size = params['train_size']
     in_sample_size= params['total_length']
     print('Parameters:', params)
-    '''''''''
-    offset = 100
-    test_size = 100
-    train_size = 400
-    in_sample_size = 4000
-    '''''
 
     if train_size > test_size:
         featureTr_list, labelTr_list = preparation(f_train_preparation, l_train_preparation, train_size, feature_size,
@@ -431,56 +436,45 @@ for params in grid:
         featureTe_list, labelTe_list = preparation(f_train_preparation, l_train_preparation, test_size,
                                                        feature_size, train_size)  # 100 of predictions
         predictions = model.predict(featureTe_list)
-        #print('pred1',len(predictions))
+
         list_of_predictions = np.hstack((list_of_predictions,predictions))
-        #print('totalpred',len(list_of_predictions))
+
 
         accuracy = accuracy_score(labelTe_list,predictions)
         list_of_accuracies.append(accuracy)
 
-        #in_lenght = int(in_sample_size*0.8)
-        #train_size = int(in_sample_size*0.8)
-        #test_size = int(in_sample_size*0.2)
-
-        #count = 0
-        #date = df.iloc[:1000,0]
-        #date = pd.to_datetime(date).year
-        #print('date',date)
+        print('TRAIN SIZE: ', train_size)
+        print('TEST_SIZE: ',test_size)
         # From the offset to the end of the series fit on the 200th element and predict on 100th successive.
         for i in range(offset-feature_size,in_sample_size - train_size - test_size,test_size-feature_size):
             # fit su 200 (90 % esempio)
-            #count +=1
-            print(i)
+
             featureTr_list, labelTr_list = preparation(f_train_preparation, l_train_preparation, train_size, feature_size,
                                                        i)
             featureTr_list = normalize(featureTr_list)
-            #print('f',featureTr_list)
-            #print('l',labelTr_list)
-            #print('lenF',len(featureTr_list))
-            #print('lenL',len(labelTr_list))
+
             model.fit(featureTr_list, labelTr_list)
             # test su 50
-            #print(i)
+
             # mi sposto di 50
-            #offset = step_size  # Starts from 200
+
             featureTe_list, labelTe_list = preparation(f_train_preparation, l_train_preparation, test_size,
                                                        feature_size, i+train_size)  # 100 of predictions
 
             featureTe_list = normalize(featureTe_list)
-            #print(len(featureTe_list))
+
             predictions = model.predict(featureTe_list)  # Predict the first 100th
-            #print('2pred',len(predictions))
-            #print('prediction',predictions)
-            #print('labelTe_list',labelTe_list)
+
             accuracy = accuracy_score(labelTe_list, predictions)  # first accuracy
             list_of_accuracies.append(accuracy)
-            #print(accuracy)
+
             list_of_predictions = np.hstack((list_of_predictions,predictions))
-            #print(list_of_predictions)
-        #print(list_of_accuracies)
+
+
         old_best_pred = list_of_predictions
         old_mean = mean
         mean = np.mean(list_of_accuracies)
+
 
         old_mdd = mdd
         '''''''''
@@ -495,51 +489,45 @@ for params in grid:
         acc = accumulator(f_train_preparation[train_size + feature_size:], accumulatore, dollars,
                           list_of_predictions, l_train_preparation[train_size + feature_size:])
         mdd = maxDrawdown(acc)
+        end = acc[(len(acc) - 1)] - accumulatore
 
+        old_no_name = no_name
+        no_name = end / mdd
+        print('END/MDD: ',no_name)
+        print('OLD END/MDD: ',old_no_name)
 
-        if mdd >= old_mdd:
-            best_mdd = mdd
+        if no_name >= best_no_name:
+            best_no_name = no_name
+            print('BEST: ',best_no_name)
             best_pred = list_of_predictions
             best_out_params = params
-
+        else:
+            print('BEST: ',best_no_name)
+            best_no_name = best_no_name
+            best_pred = best_pred
+            best_out_params = best_out_params
 
         print('mean',mean)
         #print('best_mean', best_mean)
         print('best_out_param', best_out_params)
 
-        # print('train_now',train_size)
-        #print('test_now',test_size)
-        #print('length',total_length)
-        #print('pred',len(list_of_predictions))
-        #print('old',len(best_pred))
         # For best params plot the graph
         list_of_accuracies = []
-        #print(len(list_of_predictions))
-        #print(len(best_pred))
-        #print('train',len(l_train_preparation[train_size+feature_size:]))
+
         if count <= 0 :
             plotMaxGraph(f_train_preparation,feature_size,accumulatore,dollars,
-                         best_pred,l_train_preparation,best_mdd,best_out_params)
-        '''''''''''
-        acc = accumulator(f_train_preparation[train_size+feature_size:],accumulatore,dollars,list_of_predictions,l_train_preparation[train_size+feature_size:])
-        print(len(acc))
-        print(acc)
-        mdd = maxDrawdown(acc)
-        end = acc[(len(acc)-1)] - accumulatore
-        boh = dict(Acc= best_mean,mdd=mdd,end=end, end_d_mdd=(end/mdd))
-        plt.figure()
-        plt.grid(True)
-        plt.suptitle('Market:SP500 Train: 85%',fontsize = 14, fontweight='bold')
-        plt.title(boh, fontsize=8)
-        plt.ylabel('Amount(USD)')
-        plt.xlabel('Days')
-        plt.plot(acc)
-        plt.show()
-    '''''
+                         best_pred,l_train_preparation,mean,best_out_params)
+            plt.figure()
+            autocorrelation_plot(acc)
+            plt.show()
+            count = (len(test_sizes)*len(train_sizes))
+            best_out_params = []
+            mean = 0
+            best_pred = 0
+            best_no_name = 0
 
-train_size = best_out_params['train_size']
-test_size = best_out_params['test_size']
-total_length = best_out_params['total_length']
+
+
 
 '''''''''
 count1 = range(0,count+1)
@@ -548,18 +536,6 @@ year = range(2000,2015)
 number_of_year = int(len(list_of_accuracies)/4) #4 deriva da 12/3 cioè numero mesi in un anno/numero mesi tra train e test
 
 realyear = [2000,2000,2000,2000,2001,2001,2001,2001,2002,2002,2002,2002,2003,2003,2003,2003,2004,2004,2004,2004,2005,2005,2005,2005,2006,2006,2006,2006,2007]
-
-
-plt.figure()
-plt.xlabel('epoca')
-plt.ylabel('accuratezza')
-#plt.xticks(realyear)
-plt.plot(count1,list_of_accuracies)
-plt.show()
-
-
-mean = np.mean(list_of_accuracies)
-print('mean',mean)
 
 
 plt.figure()
