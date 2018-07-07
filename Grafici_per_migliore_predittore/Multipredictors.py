@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 import csv
 import sys
 import time
+import os
 
 class Prediction:
 
@@ -95,25 +96,22 @@ def maxDrawdown(tmp):
     return mdd
 
 def results_to_csv(coverage, average_acc, final_accuracy, threshold, n_predictors, dataset_name, mdd, decision_number, end):
-    #if pd.read_csv('SP500result.csv') is not None:
-    append_to_csv(n_predictors, coverage, average_acc, final_accuracy, threshold, mdd, end, end / mdd,
-                 decision_number)
-    #else:
-    '''
     df3 = pd.DataFrame()
-    df3['NUMERO_PREDITTORI'] = n_predictors
-    print(n_predictors)
-    print(df3['NUMERO_PREDITTORI'])
+    df3['NUMERO_PREDITTORI'] =[n_predictors]
     df3['COVERAGE'] = coverage
     df3['MEDIA_ACCURATEZZE'] = average_acc
     df3['ACCURATEZZA_FINALE'] = final_accuracy
     df3['MEDIE_INFERIORI'] = threshold
     df3['MAXDRAWDOWN'] = mdd
     df3['END'] = end
-    # df3['END/MDD'] = end/mdd
-    df3['THRESHOLD'] = str(decision_number) + '%'
-    df3.to_csv(dataset_name + 'result.csv', sep=',')
-    '''
+    df3['END/MDD'] = float(end/mdd)
+    df3['THRESHOLD'] = "{}%".format(decision_number * 100.0)
+
+    if os.path.isfile('SP500result.csv'):
+        with open(dataset_name + 'result.csv', 'a') as f:
+            df3.to_csv(f, index=False, sep=',', header=False)
+    else:
+        df3.to_csv(dataset_name + 'result.csv', index=False, sep=',')
 
 def append_to_csv(n_predictors,coverage_percentage,avg_accuracies,final_accuracy,medie_inf,mdd,end,end_mdd,percentuale):
     fields = [n_predictors,coverage_percentage,avg_accuracies,final_accuracy,medie_inf,mdd,end,end_mdd,percentuale]
@@ -133,7 +131,7 @@ def test_csv(list_of_obj,buy_sell_list,date, dataset_name):
     df4.to_csv(dataset_name+'test.csv', sep=',')
 
 
-def save_values_as_csv(data, decision, up_or_down, open, max_value, min_value, close, volume, diff):
+def save_values_as_csv(destination_path, data, decision, up_or_down, open, max_value, min_value, close, volume, diff):
     df4 = pd.DataFrame()
     df4['DATA'] = data
     df4['DECISIONE'] = decision
@@ -145,7 +143,7 @@ def save_values_as_csv(data, decision, up_or_down, open, max_value, min_value, c
     df4['VOLUME'] = volume
     df4['CLOSE-OPEN'] = diff
 
-    df4.to_csv('values.csv', sep=',')
+    df4.to_csv('{}/values.csv'.format(destination_path), sep=',')
 
 def get_final_accuracy(n_hold,n_error,length_pred):
     accuracy = 1.0 - (n_error/(length_pred - n_hold))
@@ -269,7 +267,7 @@ def predict(dataframe, parameters, dataset_name):
 
     return Prediction(longdict)
 
-def plotCovariance(nuovo_acc, name_fig, dataset_name, accuratezza_media,coverage_percentage, n_under_thre, number_elements,final_accuracy):
+def plotCovariance(destination_path, nuovo_acc, name_fig, dataset_name, accuratezza_media,coverage_percentage, n_under_thre, number_elements,final_accuracy):
     mdd = maxDrawdown(nuovo_acc)
     end = nuovo_acc[(len(nuovo_acc)-1)] - 100000
     plt.figure(figsize = (10,7))
@@ -283,7 +281,7 @@ def plotCovariance(nuovo_acc, name_fig, dataset_name, accuratezza_media,coverage
     plt.gca().get_yaxis().get_major_formatter().set_scientific(False)
     plt.draw()
     plt.plot(nuovo_acc)
-    plt.savefig(name_fig)
+    plt.savefig("{}/{}".format(destination_path,name_fig))
 #---------------------------------------------------------------------------
 
 def progress_bar(count, total, status=''):
@@ -327,7 +325,22 @@ def extract_parameters(config_dataframe, predictors_number):
 # Loads dataframe and preprocesses it
 def load_dataframe(dataframe_file_path):
     df = pd.read_csv(dataframe_file_path)
+
     df = df.dropna()
+
+    cut_index = None
+    for idx, row in df.iterrows():
+        try:
+            year = get_date_object(row["DATE"]).tm_year
+        except:
+            print("ERROR IN {} , row: {}. Date is {}".format(dataframe_file_path, row, row["DATE"]))
+            exit(1)
+        if year > 2015:
+            cut_index = idx
+            break
+    if cut_index is None:
+        df = df.iloc[:cut_index]
+
     return df
 
 def make_decisions(predictions_values, decision_number):
@@ -454,23 +467,26 @@ def plotMaxGraph(f_train_preparation,accumulatore,dollars,best_pred,l_train_prep
     plt.savefig(str(dataset_name)+str(feature_size)+'DaysGraph.png', format='png')
     #plt.show()
 
+def create_destination_folder(destination_path):
+    if not os.path.exists(destination_path):
+        os.makedirs(destination_path)
 #------------------------------------------------------------------------------
 
-def combined_predict():
+
+# Main prediction method.
+# - Parameter predictors_number: The number of predictors to use (taken from the
+#   configuration file in end/mdd order)
+# - Parameter decision_threshold: The percentage threshold that indicates how many predictors have
+#   to agree in order to trust their prediction
+# - Parameter dataset_file_path: The dataset file path
+# - Parameter dataset_name: The dataset name
+# - Parameter destination_path: The destination folder path
+def combined_predict(predictors_number, decision_threshold, dataset_file_path, dataset_name, destination_path):
     #-----------------------#
     # Constants definitions #
     #-----------------------#
-
-    # The dataframe file path
-    dataframe_file_path = 'SP500_Corto.csv'
     # The configuration file path (contains predictors parameters ordered by end/mdd)
     config_file_path = 'sp500configurazionicorte.csv'
-    # The name of the selected dataset
-    dataset_name = 'SP500'
-    # The number of predictors to use (taken from the configuration file in end/mdd order)
-    predictors_number = 10
-    # The percentage threshold that indicates how many predictors have to agree in order to trust their prediction
-    decision_threshold = 1
     # The accuracy threshold used to determine the algorithm effectiveness
     accuracy_threshold = 0.50
     # The value in dollars of each BUY and SELL decision
@@ -495,6 +511,10 @@ def combined_predict():
     #      PREDICTION       #
     #-----------------------#
 
+    print("---------------------------------")
+    print("STARTING {} PREDICTIONS".format(destination_path))
+    print("---------------------------------")
+
     # Loads the configuration file into a Dataframe object
     print("- Loading configuration file ({})".format(config_file_path))
     config_dataframe = pd.read_csv(config_file_path)
@@ -506,7 +526,7 @@ def combined_predict():
 
     # Loads the dataframe
     print("- Loading dataframe...".format(config_file_path))
-    dataframe = load_dataframe(dataframe_file_path)
+    dataframe = load_dataframe(dataset_file_path)
 
     # Extracts dataframe features
     date = dataframe['DATE']
@@ -605,12 +625,22 @@ def combined_predict():
     # Computes the final algorithm accuracy
     final_accuracy = get_final_accuracy(hold_decisions_count, wrong_decisions, len(decisions_list))
 
+    create_destination_folder(destination_path)
+
     # Save the results to a csv file
-    results_to_csv(coverage_percentage, average_accuracies, final_accuracy, n_accuracy_under, [predictors_number],
-                   dataset_name, mdd, decision_number, end)
+    results_to_csv(coverage_percentage,
+                   average_accuracies,
+                   final_accuracy,
+                   n_accuracy_under,
+                   predictors_number,
+                   dataset_name,
+                   mdd,
+                   decision_threshold,
+                   end)
 
     # Plots and save graph of the computed covariance
-    plotCovariance(covariance,
+    plotCovariance(destination_path,
+                   covariance,
                    dataset_name,
                    dataset_name,
                    average_accuracies,
@@ -620,7 +650,7 @@ def combined_predict():
                    final_accuracy)
 
     # Save values to CSV file
-    save_values_as_csv(date, decisions_list, sign, open_value, max_value, min_value, close_value, volume, diff)
+    save_values_as_csv(destination_path, date, decisions_list, sign, open_value, max_value, min_value, close_value, volume, diff)
 
     # Prints statistics
     print("\n STATISTICS:\n ----------")
@@ -632,7 +662,21 @@ def combined_predict():
     print("-------------------------------")
     print("- Predictions completed succesfully!")
 
-# Computes the final prediction
-combined_predict()
+def get_files_in_path(dest_path):
+    return [ f for f in os.listdir(dest_path) if os.path.isfile(os.path.join(dest_path, f))]
 
+def get_csv_in_path(dest_path):
+    all_files = get_files_in_path(dest_path)
+    return [os.path.splitext(f)[0] for f in all_files if os.path.splitext(f)[1] == ".csv"]
 
+#------------------------------------------------------------------------------------------------------------------
+
+datasets_path = "Datasets"
+datasets_paths = get_csv_in_path(datasets_path)
+for dataset_name, dataset in zip(datasets_paths, [ "{}/{}.csv".format(datasets_path, dataset) for dataset in datasets_paths]):
+    combined_predict(10, 1.0, dataset, dataset_name, "{} (10 - 100)".format(dataset_name))
+    combined_predict(10, 0.9, dataset, dataset_name, "{} (10 - 90)".format(dataset_name))
+    combined_predict(10, 0.8, dataset, dataset_name, "{} (10 - 80)".format(dataset_name))
+    combined_predict(20, 1.0, dataset, dataset_name, "{} (20 - 100)".format(dataset_name))
+    combined_predict(20, 0.9, dataset, dataset_name, "{} (20 - 90)".format(dataset_name))
+    combined_predict(20, 0.8, dataset, dataset_name, "{} (20 - 80)".format(dataset_name))
