@@ -6,7 +6,7 @@ from sklearn.ensemble import GradientBoostingClassifier
 import matplotlib.pyplot as plt
 import csv
 import sys
-import random
+import time
 
 class Prediction:
 
@@ -17,9 +17,9 @@ class Prediction:
         self.par = dictionary['in_params']
         self.no_name = dictionary['no_name']
         self.predictions = dictionary['predictions']
-        self.offsets = dictionary['offsets']
         self.labels = dictionary['labels']
         self.features = dictionary['features']
+        self.dates = dictionary['dates']
 
     def getName(self):
         return self.name
@@ -70,23 +70,14 @@ def get_sign_column_from_diff(df):
 
 def calculate_covariance(buy_sell_list, initial_capital, dollars, diff, sign):
     covariance = []
-    print(len(diff))
-    print(len(buy_sell_list))
     for i in range(0, len(buy_sell_list)):
-        print('predizione', buy_sell_list[i])
         if buy_sell_list[i] == sign[i]:
-            print('compra o vendi')
             initial_capital += dollars * abs(diff[i])
+        elif buy_sell_list[i] == 0:
+            pass
         else:
-            if buy_sell_list[i] == 0:
-                print('nada')
-            else:
-                print('perdi')
-                initial_capital -= dollars * abs(diff[i])
-        print('capitale',initial_capital)
-
+            initial_capital -= dollars * abs(diff[i])
         covariance.append(initial_capital)
-
     return covariance
 
 def maxDrawdown(tmp):
@@ -162,22 +153,23 @@ def get_final_accuracy(n_hold,n_error,length_pred):
     return accuracy
 
 # Split the dataset into 7 days of train and 1 predicted
-def preparation(f_train, l_train, step_size, feature_size, offset):
+def preparation(f_train, l_train, dates, step_size, feature_size, offset):
     train_list = []
     test_list = []
-# 0 -> TRAIN_SIZE - 7
+    dates_list = []
     #Provo a togliere - feature size
     for i in range(offset, offset + step_size - feature_size):
-        list = f_train[i:i + feature_size]
-        train_list.append(list)
+        dates_list.append(dates[i + feature_size])
+        train_list.append(f_train[i:i + feature_size])
         test_list.append(l_train[i + feature_size])
 
-    return train_list, test_list
+    return train_list, test_list, dates_list
 
-def make_prediction(model, diffs, signs, train_size, test_size, feature_size, offset):
+def make_prediction(model, diffs, signs, dates, train_size, test_size, feature_size, offset):
     # Prepare the feature and the label for the fit ( 0-train size)
-    featureTr_list, labelTr_list  = preparation(diffs,
-                                               signs,
+    featureTr_list, labelTr_list, _  = preparation(diffs,
+                                                signs,
+                                                dates,
                                                train_size,
                                                feature_size,
                                                offset)
@@ -187,20 +179,22 @@ def make_prediction(model, diffs, signs, train_size, test_size, feature_size, of
     model.fit(featureTr_list, labelTr_list)
 
     # Prepare the feature and the label for the predict (train-size - test-size)
-    featureTe_list, labelTe_list = preparation(diffs,
+    featureTe_list, labelTe_list, dates_list = preparation(diffs,
                                                signs,
+                                               dates,
                                                test_size,
                                                feature_size,
                                                offset + train_size)
+    featureTe_list = normalize(featureTe_list)
 
     # Executes the predict
     prediction = model.predict(featureTe_list)
-    return prediction, accuracy_score(labelTe_list, prediction)
+    return prediction, accuracy_score(labelTe_list, prediction), dates_list
 
 def predict(dataframe, parameters, dataset_name):
 
     # Extracts features from the dataframe
-    dates = dataframe['DATE']
+    dates = dataframe['DATE'].values
     diffs = get_diff_column(dataframe)
     signs = get_sign_column_from_diff(diffs)
 
@@ -217,9 +211,6 @@ def predict(dataframe, parameters, dataset_name):
     total_length = len(diffs) - 1
     offset = test_size
     in_sample_size = total_length
-    iterate_start = offset - feature_size
-    iterate_end = in_sample_size - train_size - test_size
-    iterate_step = test_size - feature_size
 
     predictions_accuracies = []
     no_name = 0
@@ -233,21 +224,22 @@ def predict(dataframe, parameters, dataset_name):
 
     # Add predictions to a list
     prediction_values = []
-    prediction_offsets = []
+    prediction_dates = []
 
     # Iterates through the dataframe at the given offset and sample size
     for i in range(0,
                    in_sample_size - train_size - test_size,
                    test_size - feature_size):
 
-        prediction, accuracy = make_prediction(model, diffs, signs, train_size, test_size, feature_size, i)
+        prediction, accuracy, dates_list = make_prediction(model, diffs, signs, dates, train_size, test_size, feature_size, i)
 
         # Stores the prediction accuracy
         predictions_accuracies.append(accuracy)
 
         # Concantenate the new predictions
         prediction_values = np.hstack((prediction_values, prediction))
-        prediction_offsets.append(i)
+        prediction_dates = np.hstack((prediction_dates, dates_list))
+        # Store associated prediction dates
 
     # Computes the mean value of all predictions accuracies
     accuracies_mean = np.mean(predictions_accuracies)
@@ -271,9 +263,9 @@ def predict(dataframe, parameters, dataset_name):
                     in_params=in_parameters,
                     no_name=no_name,
                     predictions=prediction_values,
-                    offsets=prediction_offsets,
                     labels=diffs,
-                    features=signs,)
+                    features=signs,
+                    dates=prediction_dates)
 
     return Prediction(longdict)
 
@@ -379,7 +371,90 @@ def make_decisions(predictions_values, decision_number):
         column_list = []
 
     return decisions_list, buy_sell_decisions_count
+
+def get_date_object(date_string, date_format = "%d/%m/%Y"):
+    return time.strptime(date_string, date_format)
+
+
+def slice_predictions(predictions_list):
+    max_start_date = None
+    min_end_date = None
+    for index, prediction in enumerate(predictions_list):
+        start_date = get_date_object(prediction.dates[0])
+        end_date = get_date_object(prediction.dates[-1])
+
+        if max_start_date is None or start_date > max_start_date:
+            max_start_date = start_date
+        if min_end_date is None or end_date < min_end_date:
+            min_end_date = end_date
+
+    prediction_dates_start_cuts = []
+    prediction_dates_end_cuts = []
+    for index, prediction in enumerate(predictions_list):
+        start_cut = False
+        end_cut = False
+        for date_index, date in enumerate(prediction.dates):
+            if get_date_object(date) >= max_start_date and start_cut == False:
+                prediction_dates_start_cuts.append(date_index)
+                start_cut = True
+            if get_date_object(date) >= min_end_date and start_cut == True and end_cut == False:
+                prediction_dates_end_cuts.append(date_index)
+                end_cut = True
+
+    for prediction, start_cut, end_cut in zip(predictions_list, prediction_dates_start_cuts, prediction_dates_end_cuts):
+        prediction.dates = prediction.dates[start_cut:end_cut+1]
+        prediction.predictions = prediction.predictions[start_cut:end_cut+1]
+
+    return predictions_list, max_start_date, min_end_date
 #------------------------------------------------
+
+def accumulator (f_train_preparation,accumulator, dollars, predictions, l_train_preparation, open):
+    acc = []
+    for i in range(0, len(predictions)):
+        if predictions[i] == l_train_preparation[i]:
+            accumulator += abs((f_train_preparation[i] * dollars))
+        elif predictions[i] == 0:
+            pass
+        else:
+            accumulator -= abs((f_train_preparation[i] * dollars))
+        acc.append(accumulator)
+    return acc
+
+def plotMaxGraph(f_train_preparation,accumulatore,dollars,best_pred,l_train_preparation, best_mean, best_out_params, dataset_name,
+                 best_in_params, open):
+    train_size = best_out_params['train_size']
+    test_size = best_out_params['test_size']
+    feature_size = best_out_params['feature_size']
+    total_length = best_out_params['in_sample_size']
+    print('train',len(l_train_preparation[train_size+feature_size:]))
+    print('pred',len(best_pred))
+    acc = accumulator(f_train_preparation[train_size + feature_size:],accumulatore,dollars,
+                      best_pred,l_train_preparation[train_size+feature_size:], open[train_size+feature_size:])
+
+    mdd = maxDrawdown(acc)
+    end = acc[(len(acc) - 1)] - accumulatore
+    #boh = dict(Acc=best_mean, mdd=mdd, end=end)
+    boh = 'Acc = '+str(round(best_mean,4))+'  Mdd = '+ str(round(mdd,4)) + '  End = ' + str(round(end,4))
+    #sup = dict(Market = dataset_name, Train =train_size, Test = test_size, Total_length= total_length, feature_size = feature_size)
+    sup = 'Market = '+str(dataset_name)+'  Train = '+str(train_size)+'  Test = '+str(test_size) + \
+          '  Total Length = '+str(total_length) + '  Feature = ' + str(feature_size)
+    #ax = plt.figure(figsize= (10,7)).add_axes([0,0,1,1])
+    plt.figure( figsize = (10,7))
+    plt.grid(True)
+    plt.title(str(boh)+ '  End/Mdd = '+str(round((end/mdd),4)))
+    in_par ='loss = '+str(best_in_params['loss']) + '  max_depth = '+ str(best_in_params['max_depth']) \
+            + '  min_sample_leaf = '+ str(best_in_params['min_samples_leaf']) + '  n_estimators = '+ str(best_in_params['n_estimators'])
+    plt.suptitle(str(sup)+'\n'+in_par)
+    #plt.text(0.5, 0, best_in_params, fontsize=12, horizontalalignment = 'center')
+    #plt.suptitle(best_in_params, fontsize = 10, fotweight = 'bold')
+    #plt.title(boh, fontsize=9)
+    plt.ylabel('Amount(USD)')
+    plt.xlabel('Days')
+    plt.plot(acc)
+    plt.savefig(str(dataset_name)+str(feature_size)+'DaysGraph.png', format='png')
+    #plt.show()
+
+#------------------------------------------------------------------------------
 
 def combined_predict():
     #-----------------------#
@@ -395,7 +470,7 @@ def combined_predict():
     # The number of predictors to use (taken from the configuration file in end/mdd order)
     predictors_number = 10
     # The percentage threshold that indicates how many predictors have to agree in order to trust their prediction
-    decision_threshold = 0.9
+    decision_threshold = 1
     # The accuracy threshold used to determine the algorithm effectiveness
     accuracy_threshold = 0.50
     # The value in dollars of each BUY and SELL decision
@@ -449,56 +524,29 @@ def combined_predict():
     for index, parameters in enumerate(parameters_list):
         print("\nComputing prediction {} of {}".format(index+1, predictors_number))
         all_predictions_list.append(predict(dataframe, parameters, dataset_name))
+
     print("- Succesfully computed {} predictions.".format(len(all_predictions_list)))
 
-    # Extract the max train size used for the computed predictions,
-    # along with the length of the shortest prediction
-    offset_max = 0
-    prediction_size_min = sys.maxsize
-    for obj in all_predictions_list:
-        _offset = obj.params["train_size"] + obj.params["feature_size"]
-        if _offset > offset_max:
-            offset_max = _offset
+    all_predictions_list, max_start_date, min_end_date = slice_predictions(all_predictions_list)
 
-    # Slice the predictions in order to align them correctly
-    print("- Slicing and aligning predictions...")
-    for obj in all_predictions_list:
-        _offset = obj.params["train_size"] + obj.params["feature_size"]
+    # Cut dataframe
+    cut_start_index = None
+    cut_end_index = None
+    for index, obj_date in enumerate(date):
+        if obj_date == time.strftime('%d/%m/%Y', max_start_date):
+            cut_start_index = index
+        elif obj_date == time.strftime('%d/%m/%Y', min_end_date):
+            cut_end_index = index
 
-        print("BEFORE:\noffset: {}\n Predictions length: {}\n Predictions size min: {}\n Train Size: {}\n Feature Size: {}".format(
-            _offset,
-            len(obj.predictions),
-            prediction_size_min,
-            obj.params["train_size"],
-            obj.params["feature_size"]
-        ))
-
-        obj.predictions = obj.predictions[offset_max - _offset:]
-
-    # Cut predictions to be all the same length (the min one)
-    for obj in all_predictions_list:
-        prediction_size_min = min( [ len(obj.predictions) for obj in all_predictions_list] )
-        obj.predictions = obj.predictions[0:prediction_size_min]
-
-        print(
-            "AFTER:\noffset: {}\n Predictions length: {}\n Predictions size min: {}\n Train Size: {}\n Feature Size: {}".format(
-                _offset,
-                len(obj.predictions),
-                prediction_size_min,
-                obj.params["train_size"],
-                obj.params["feature_size"]
-            ))
-
-    # Slice each one of the columns of the Dataset, to keep it aligned with the predictions
-    date = date[offset_max:offset_max + prediction_size_min]
-    open_value = open_value[offset_max:offset_max + prediction_size_min]
-    sign = sign[offset_max:offset_max + prediction_size_min]
-    diff = diff[offset_max:offset_max + prediction_size_min]
-    close_value = close_value[offset_max:offset_max + prediction_size_min]
-    max_value = max_value[offset_max:offset_max + prediction_size_min]
-    min_value = min_value[offset_max:offset_max + prediction_size_min]
-    volume = volume[offset_max:offset_max + prediction_size_min]
-    print("- Predictions sliced and aligned (length: {})".format(prediction_size_min))
+    date = date[cut_start_index:cut_end_index+1]
+    open_value = open_value[cut_start_index:cut_end_index+1]
+    sign = sign[cut_start_index:cut_end_index+1]
+    diff = diff[cut_start_index:cut_end_index+1]
+    close_value = close_value[cut_start_index:cut_end_index+1]
+    max_value = max_value[cut_start_index:cut_end_index+1]
+    min_value = min_value[cut_start_index:cut_end_index+1]
+    volume = volume[cut_start_index:cut_end_index+1]
+    print("- Predictions sliced and aligned (length: {})".format(cut_end_index - cut_start_index + 1))
 
     # Get the list of predicted values for each one of the predictions
     predictions_values = [obj.predictions for obj in all_predictions_list]
