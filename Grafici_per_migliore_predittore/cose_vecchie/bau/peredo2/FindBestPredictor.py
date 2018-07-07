@@ -7,7 +7,6 @@ from sklearn.metrics import accuracy_score
 from sklearn.model_selection import GridSearchCV
 from pandas.plotting import autocorrelation_plot
 from sklearn.model_selection import ParameterGrid
-import pywt
 
 
 class Prediction:
@@ -49,76 +48,61 @@ class Prediction:
         return out
 
 
-def plotCovariance(nuovo_acc, name_fig, dataset_name):
-    mdd = maxDrawdown(nuovo_acc)
-    end = nuovo_acc[(len(nuovo_acc)-1)] - 100000
-    plt.figure(figsize = (10,7))
-    plt.grid(True)
-    plt.title('Market = '+ dataset_name +' mdd = '+ str(round(mdd,4))+' end = ' +str(round(end,4))+ ' end/mdd = ' + str(round(end/mdd,4)))
-    plt.ylabel('Amount(USD)')
-    plt.xlabel('Days')
-    plt.plot(nuovo_acc)
-    plt.savefig(name_fig+'png')
+def calculateMdd(element, open):
+    train = element.features
+    label = element.labels
+    train_size = element.params['train_size']
+    feature_size = element.params['feature_size']
+    accumulatore = 100000
+    dollars = 50
+    acc = accumulator(train[train_size + feature_size:], accumulatore, dollars,
+                      element.predictions, label[train_size + feature_size:], open[train_size + feature_size:])
+    mdd = maxDrawdown(acc)
+    end = acc[(len(acc) - 1)] - accumulatore
 
-# covarianza = numero che forniace la misura di quanto queste sono dipendenti le une dalle altre
+    return mdd, end
 
-def create_new_csv(df, new_accumulator, best_first, best_second, start, i1 ,end1, boolean):
-    dframe = pd.DataFrame()
-    i = 0
-    if boolean == 0:
-        i = best_first.params['train_size']+ best_first.params['feature_size']
-        end = len(best_first.predictions)
-        print(i)
-        # Salva il primo parametro e aggiungilo al secondo parametro dell iloc per ogni cosa
-        dframe['DATE'] = np.array(df.iloc[i:i+ end1,[0]].values.tolist()).flatten()
-        print(dframe['DATE'])
-        print(len(dframe['DATE']))
-        dframe['OPEN'] = np.array(df.iloc[i:i+ end1,[1]].values.tolist()).flatten()
-        dframe['HIGH'] = np.array(df.iloc[i:i+ end1,[2]].values.tolist()).flatten()
-        dframe['LOW'] = np.array(df.iloc[i:i+ end1,[3]].values.tolist()).flatten()
-        dframe['CLOSE'] = np.array(df.iloc[i:i+ end1,[4]].values.tolist()).flatten()
-        dframe['VOLUME'] = np.array(df.iloc[i:i+ end1,[5]].values.tolist()).flatten()
-        dframe['CLOSE-OPEN'] = best_first.features[i:i+end]
-        print('miao')
-    else:
-        i = best_second.params['train_size']+ best_second.params['feature_size']
-        end = len(best_second.predictions)
-        print(i)
-        dframe['DATE'] = df.iloc[i:i + end, [0]]
-        dframe['OPEN'] = df.iloc[i:i + end, [1]]
-        dframe['HIGH'] = df.iloc[i:i + end, [2]]
-        dframe['LOW'] = df.iloc[i:i + end, [3]]
-        dframe['CLOSE'] = df.iloc[i:i + end, [4]]
-        dframe['VOLUME'] = df.iloc[i:i + end, [5]]
-        dframe['CLOSE-OPEN'] = best_first.features[i:i + end]
 
-    z = []
-    for element in new_accumulator:
-        if element == 1:
-            z.append('BUY')
-        elif element == 0:
-            z.append('HOLD')
-        else:
-            z.append('SELL')
+def creatListcsv(MergedList, open, dataset_name):
+    tmp2 = []
+    df3 = pd.DataFrame()
+    mddList = []
+    endList = []
+    fractionList = []
+    train_sizeList = []
+    featureSizeList = []
+    test_sizeList = []
+    minSLList = []
+    maxDList = []
+    n_estList = []
 
-    print('z',len(z))
-    dframe['ACTION'] = z
-    #print('z', len(z))
-    a = []
-    for element in dframe['CLOSE-OPEN']:
-        if element > 0:
-            a.append(1.0)
-        else:
-            a.append(-1.0)
+    for element in MergedList:
+        tmp2.append(element.mean)
+        mdd, end = calculateMdd(element, open)
+        mddList.append(mdd)
+        endList.append(end)
+        fractionList.append(end / mdd)
+        train_sizeList.append(element.params['train_size'])
+        test_sizeList.append(element.params['test_size'])
+        featureSizeList.append(element.params['feature_size'])
+        minSLList.append(element.par['min_samples_leaf'])
+        maxDList.append(element.par['max_depth'])
+        n_estList.append(element.par['n_estimators'])
 
-    #print('a',len(a))
+    df3['ACCURACY'] = tmp2
+    df3['MAXDRAWDOWN'] = mddList
+    df3['EQUITY'] = endList
+    df3['EQUITY/MDD'] = fractionList
+    df3['TRAIN_SIZE'] = train_sizeList
+    df3['TEST_SIZE'] = test_sizeList
+    df3['FEATURE_SIZE'] = featureSizeList
+    df3['MIN_SAMPLES_LEAF'] = minSLList
+    df3['MAX_DEPTH'] = maxDList
+    df3['N_ESTIMATORS'] = n_estList
+    df3['LOSS'] = 'DEVIANCE'
 
-    print(len(dframe['DATE']))
-    dframe['MERCATO'] = a
-    print('a', len(dframe['MERCATO']))
-    columnsTitle = ['DATE','ACTION','MERCATO','OPEN','HIGH','LOW','CLOSE','VOLUME','CLOSE-OPEN']
-    dframe.reindex(columnsTitle, axis=1)
-    dframe.to_csv('mercato.csv', sep=',')
+    df3.to_csv(dataset_name + 'listaDelleConfigurazioni.csv', sep=',')
+
 
 def plotMaxGraph(f_train_preparation,accumulatore,dollars,best_pred,l_train_preparation, best_mean, best_out_params, dataset_name,
                  best_in_params, open):
@@ -130,8 +114,6 @@ def plotMaxGraph(f_train_preparation,accumulatore,dollars,best_pred,l_train_prep
     print('pred',len(best_pred))
     acc = accumulator(f_train_preparation[train_size + feature_size:],accumulatore,dollars,
                       best_pred,l_train_preparation[train_size+feature_size:], open[train_size+feature_size:])
-    #acc = calculateCovariance(new_accumulator,dollars,best_pred.features[best_first.features[best_first.params['train_size']
-                                   #+ best_first.params['feature_size']:])
     mdd = maxDrawdown(acc)
     end = acc[(len(acc) - 1)] - accumulatore
     #boh = dict(Acc=best_mean, mdd=mdd, end=end)
@@ -152,7 +134,7 @@ def plotMaxGraph(f_train_preparation,accumulatore,dollars,best_pred,l_train_prep
     plt.ylabel('Amount(USD)')
     plt.xlabel('Days')
     plt.plot(acc)
-    plt.savefig(str(feature_size)+'DaysGraph.png', format='png')
+    plt.savefig(str(dataset_name)+str(feature_size)+'DaysGraph.png', format='png')
     #plt.show()
 
 def saveParams(prediction):
@@ -386,7 +368,6 @@ def accumulator (f_train_preparation,accumulator, dollars, predictions, l_train_
     '''
     return acc
 
-
 # Plot the graph of the signal decomposition with Wavelets
 def plot_signal_decomp(data, w, title):
     """Decompose and plot a signal S.
@@ -455,6 +436,7 @@ def plot_signal_decomp(data, w, title):
 
 
 def predict(df):
+    contatore = 0
     # print(df['Time'])
     print('start')
     # hourlyTimeSeCreate(df)
@@ -477,25 +459,25 @@ def predict(df):
     # In parameters
     loss = ['deviance']
     # n_estimators = [1000, 100, 500, 1500]
-    n_estimators = [100,500,1000, 50]
+    n_estimators = [50, 100, 500,1000]
     #n_estimators = [100]
-    max_depth = [6,3]  # tolgo il 3 che non ho voglia di aspettare
+    max_depth = [3,6]  # tolgo il 3 che non ho voglia di aspettare
     # min_samples_leaf = [15, 10]
-    min_samples_leaf = [15, 10]
+    min_samples_leaf = [10, 15]
     #min_samples_leaf = [15]
     # Parameter grid for internal parameters
     param_grid = dict(loss=loss, n_estimators=n_estimators, max_depth=max_depth, min_samples_leaf=min_samples_leaf)
     ingrid = ParameterGrid(param_grid)
 
     # Out parameters
-    test_sizes = [150, 200, 100, 50]
-    #test_sizes = [100,200,150]
+    # test_sizes = [150, 200, 100, 50]
+    test_sizes = [100,150, 200]
     #test_sizes = [150]
-    train_sizes = [400, 500, 200]
+    train_sizes = [200, 400, 500]
     # train_sizes = [200,500]
     #train_sizes = [200]
     total_length = [len(diff) - 1]
-    feature_sizes = [7, 2, 4]
+    feature_sizes = [2,4,7]
     #feature_sizes = [7]
     # train_sizes = [500]
     # test_sizes = [150]
@@ -664,20 +646,20 @@ def predict(df):
                     mean = 0
                     best_pred = 0
                     best_no_name = 0
-
-                #print('Miao')
+                contatore += 1
+                print(str((contatore/16)* 100)+"%")
                 # Prendo i valori migliori in assoluto
 
     return Sevendays, Fourdays, Twodays
 
 
 # Read the csv
-dataset_name = 'SP500_FULL_NATIVE.csv'
+dataset_name = 'MINISP_FULL_NATIVE.csv'
 df = pd.read_csv(dataset_name)
 
 open1 = df.iloc[:,[1]]
 # Mode for wavelets use
-mode = pywt.Modes.smooth
+#mode = pywt.Modes.smooth
 
 Sevenlist, Fourlist,Twolist = predict(df)
 
@@ -688,7 +670,11 @@ print(len(Twolist))
 best_mean = -999999999
 best_element = Sevenlist[0]
 best2 = []
+MergedList = Sevenlist + Fourlist + Twolist
 
+creatListcsv(MergedList, open1, dataset_name)
+
+'''''''''
 for element in Sevenlist:
     print('no name: ', element.no_name)
     if element.no_name >= best_mean:
@@ -704,7 +690,7 @@ plotMaxGraph(best_element.features, accumulatore, dollars, best_element.predicti
              dataset_name, best_element.par, open1)
 
 saveParams(best_element)
-1
+
 best_mean = -9999999999
 best2 = Fourlist[0]
 for element in Fourlist:
@@ -723,14 +709,11 @@ saveParams(best2)
 best_mean = -9999999999
 best3 = Twolist[0]
 for element in Twolist:
-    #best_element, best_mean = best(element, best_mean)
     print('no name: ', element.no_name)
     if element.no_name >= best_mean:
         print('no name: ', element.no_name)
         best3 = element
         best_mean = element.no_name
-
-
 
 print(best3.par)
 plotMaxGraph(best3.features, accumulatore, dollars, best3.predictions, best3.labels,
@@ -739,7 +722,7 @@ plotMaxGraph(best3.features, accumulatore, dollars, best3.predictions, best3.lab
 saveParams(best3)
 
 
-best__mean = -999999999
+
 mergedList = Sevenlist + Fourlist + Twolist
 best_first = mergedList[0]
 counter = 0
@@ -752,8 +735,31 @@ for element in mergedList:
         b = counter
     counter +=1
 
+plotMaxGraph(best_first.features, accumulatore, dollars, best_first.predictions, best_first.labels,
+             best_first.mean, best_first.params,
+             dataset_name, best_first.par, open1)
+saveParams(best_first)
+del mergedList[b]
+counter = 0
+print((len(mergedList)))
+best__mean = -999999999
+best_second = mergedList[0]
+
+for element in mergedList:
+    if element.no_name == best_mean:
+        best_second = element
+        best_mean = element.no_name
+        b = counter
+    counter += 1
+
+plotMaxGraph(best_second.features, accumulatore, dollars, best_second.predictions, best_second.labels,
+             best_second.mean, best_second.params,
+             dataset_name, best_second.par, open1)
+saveParams(best_second)
+
 del mergedList[b]
 print((len(mergedList)))
+
 best__mean = -999999999
 best_second = mergedList[0]
 for element in mergedList:
@@ -761,68 +767,46 @@ for element in mergedList:
         best_second = element
         best_mean = element.no_name
 
+plotMaxGraph(best_second.features, accumulatore, dollars, best_second.predictions, best_second.labels,
+             best_second.mean, best_second.params,
+             dataset_name, best_second.par, open1)
+saveParams(best_second)
+'''''
+'''''''''''
+#print(obj_list)
+# Controllo il valore migliore per ogni parametro
+z = []
+predictions = obj_list[0]
+#print(obj_list[0])
+array_pred = predictions.predictions
+print(len(array_pred))
 
-end = 0
-i = 0
-start = 0
-label1 = []
-label2 = [] 
-new_accumulator = []
-boolean = 0
+for element in array_pred:
+    z.append(element)
 
-# Se la prima predizione è la pià piccola in lunghezza
-if len(best_first.predictions) < len(best_second.predictions) :
-    boolean = 0
-    i = best_first.params['train_size'] + best_first.params['feature_size']
-    print(i)
-    end = len(best_first.predictions)
-    label =	best_first.labels[i:i + end]
-    #label2 = best_second.label[i: i+ end]
-    start = best_second.params['train_size'] + best_second.params['feature_size']
-    print('Miao')
-    predictions = best_second.predictions[start-i:start-i+end]
+print(z)
+train_size = 500
+test_size = 100
+feat_size = 2
+date = df.ix[train_size+feat_size:(-33),[0]]
+date = df['DATE'].values.tolist()
+date = date[train_size+feat_size:-33]
+print('date',len(date))
+print('z',len(z))
+print(type(date))
+print(date)
+#index = range(0,len(z))
 
+df1 = pd.DataFrame()
+df1['Predictions'] = z
+#df['index'] = index
+#list = []
+#for element in date:
+#    list.append[element]
 
-    for a in range(0,len(label)):
+df1['Date'] = date
+df1.to_csv('Prova.csv', sep=',')
 
-        if(best_first.predictions[a] == predictions[a]):
-            # Buy o sell in base al segno
-            if best_first.predictions[a] > 0:
-                # buy
-                new_accumulator.append(1)
-            else: # sell
-                new_accumulator.append(-1)
-        else :
-            # hold
-            new_accumulator.append(0)
+predict(df)
 
-elif len(best_first.predictions) > len(best_second.predictions) :
-    boolean = 1
-    print('Miao2')
-    i = best_second.params['train_size'] + best_second.params['feature_size']
-    end = len(best_second.predictions)
-    label =	best_second.label[i:i + end]
-    predictions = best_first.predictions[i+(best_first.params['train_size']
-                                        + best_first.params['feature_size']):i+end]
-
-    for a in range(0,len(label)):
-        if best_first.predictions[a] == predictions[a]:
-            # Buy o sell in base al segno
-            if best_first.predictions[a] > 0:
-                # buy
-                new_accumulator.append(1)
-            else: # sell
-                new_accumulator.append(-1)
-        else :
-            # hold
-            new_accumulator.append(0)
-
-# Ora ho l'accumulatore, faccio il grafico e stampo le cose nel csv
-create_new_csv(df,new_accumulator,best_first,best_second, start,i,end, boolean)
-
-nuovo_acc = calculateCovariance(new_accumulator,
-               dollars,
-               best_first.features[best_first.params['train_size']
-                                   + best_first.params['feature_size']:])
-
-plotCovariance(nuovo_acc, 'Best_one', dataset_name)
+'''''

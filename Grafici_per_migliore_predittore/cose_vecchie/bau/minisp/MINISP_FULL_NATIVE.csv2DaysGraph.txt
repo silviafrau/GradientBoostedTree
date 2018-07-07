@@ -1,0 +1,5 @@
+Dataset: MINISP_FULL_NATIVE.csv
+Accuracy: 0.5197072072072072
+Parametri esterni: {'feature_size': 2, 'test_size': 150, 'total_length': 3966, 'train_size': 400}
+Parametri interni: {'loss': 'deviance', 'max_depth': 3, 'min_samples_leaf': 15, 'n_estimators': 50}
+Equity/MDD: 1.7378655760475346

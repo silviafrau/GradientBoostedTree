@@ -1,0 +1,5 @@
+Dataset: SP500_FULL_NATIVE.csv
+Accuracy: 0.5203117619272556
+Parametri esterni: {'feature_size': 4, 'test_size': 150, 'total_length': 4677, 'train_size': 400}
+Parametri interni: {'loss': 'deviance', 'max_depth': 3, 'min_samples_leaf': 15, 'n_estimators': 50}
+Equity/MDD: 4.056295399515738

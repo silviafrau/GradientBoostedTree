@@ -1,0 +1,5 @@
+Dataset: EUROFG_FULL_NATIVE.csv
+Accuracy: 0.4948630136986301
+Parametri esterni: {'feature_size': 4, 'test_size': 150, 'total_length': 3814, 'train_size': 200}
+Parametri interni: {'loss': 'deviance', 'max_depth': 3, 'min_samples_leaf': 15, 'n_estimators': 100}
+Equity/MDD: -0.5673313783027497

@@ -1,4 +1,0 @@
-loss = deviance
-max-depth = 6
-min_sample_leaf = 10
-n_estimators = 500

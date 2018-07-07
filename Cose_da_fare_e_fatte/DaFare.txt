@@ -1,0 +1,3 @@
+Per ogni giorno in csv -> data, buy hold o sell, (MAIUSCOLO) float ( 1 se sale il mercato, -1 se scende), open, massimo, minimo, close, volume, close - open (comma separated, float) SP500 prima e poi gli altri. (tutti float)
+
+
