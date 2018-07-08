@@ -107,7 +107,7 @@ def results_to_csv(coverage, average_acc, final_accuracy, threshold, n_predictor
     df3['END/MDD'] = float(end/mdd)
     df3['THRESHOLD'] = "{}%".format(decision_number * 100.0)
 
-    if os.path.isfile('SP500result.csv'):
+    if os.path.isfile(dataset_name + 'result.csv'.format(dataset_name)):
         with open(dataset_name + 'result.csv', 'a') as f:
             df3.to_csv(f, index=False, sep=',', header=False)
     else:
